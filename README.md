@@ -111,8 +111,8 @@ Follow these steps to run the application locally on your development machine.
 ### 2. Clone the Repository
 
 ```bash
-git clone https://github.com/hariompatel61/analyser-listener.git
-cd analyser-listener
+git clone https://github.com/hariompatel61/open-astm-lis-connector.git
+cd open-astm-lis-connector
 ```
 
 ### 3. Set Up Virtual Environment
@@ -295,7 +295,7 @@ The connector adheres strictly to ASTM E1381 framing:
 ## Directory Structure
 
 ```text
-analyser-listener/
+open-astm-lis-connector/
 ├── build_universal_32bit.ps1       # Automated universal 32-bit build pipeline
 ├── COCOHOSPITALS_LIS_Analyzer_Connector.iss # Inno Setup installer script
 ├── LICENSE                         # MIT License
