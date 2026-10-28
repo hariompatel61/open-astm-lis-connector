@@ -10,14 +10,14 @@ import requests
 try:
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
-        QVBoxLayout, QHBoxLayout, QFormLayout, QTextEdit, QFrame,
+        QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit, QFrame,
         QMessageBox,
     )
     from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 except ImportError:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
-        QVBoxLayout, QHBoxLayout, QFormLayout, QTextEdit, QFrame,
+        QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit, QFrame,
         QMessageBox,
     )
     from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
@@ -98,8 +98,9 @@ class ERBAConnector(QWidget):
             logger.exception("Unable to create listener temp directory")
 
         try:
-            self.setWindowTitle("Cocohospitals LIS - Analyzer Connector")
-            self.resize(940, 720)
+            self.setWindowTitle("COCOHOSPITALS LIS - Analyzer Connector")
+            self.resize(940, 500)
+            self.setMinimumSize(820, 440)
             self.create_ui()
             self.log_message("Application started successfully.")
             self.log_message(f"Listener: {LISTENER_FILE}")
@@ -122,53 +123,57 @@ class ERBAConnector(QWidget):
 
     def create_ui(self):
         main = QVBoxLayout()
-        main.setContentsMargins(28, 22, 28, 22)
-        main.setSpacing(12)
+        main.setContentsMargins(16, 12, 16, 12)
+        main.setSpacing(8)
 
         self.setStyleSheet("""
             QWidget {
-                background:#eef3f7;
-                color:#182434;
-                font-family:Inter, Arial, sans-serif;
+                background: #f1f5f9;
+                color: #0f172a;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             }
-            QLabel { background:transparent; }
+            QLabel { background: transparent; }
         """)
 
+        # ----------------------------------------------------
+        # 1. Compact Header
+        # ----------------------------------------------------
         header = QFrame()
         header.setObjectName("Header")
         header.setStyleSheet("""
             #Header {
-                background:#ffffff;
-                border:1px solid #cfd9e5;
-                border-radius:6px;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
             }
-            QLabel { background:transparent; border:0; }
+            QLabel { background: transparent; border: 0; }
             #BrandBadge {
-                background:#eaf4fb;
-                border:1px solid #bfd8ea;
-                border-radius:4px;
-                color:#0f4f7a;
-                padding:8px 12px;
-                font-size:12px;
-                font-weight:800;
+                background: #e0f2fe;
+                border: 1px solid #bae6fd;
+                border-radius: 4px;
+                color: #0369a1;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.5px;
             }
         """)
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(18, 13, 18, 13)
-        hl.setSpacing(14)
+        hl.setContentsMargins(14, 8, 14, 8)
+        hl.setSpacing(12)
 
         title_stack = QVBoxLayout()
-        title_stack.setSpacing(2)
+        title_stack.setSpacing(1)
 
         title = QLabel("COCOHOSPITALS LIS - Analyzer Connector")
         title.setStyleSheet(
-            "color:#0f2f4f;font-size:25px;font-weight:800;"
+            "color: #0f2f4f; font-size: 16px; font-weight: 800;"
         )
         subtitle = QLabel(
             "Laboratory Instrument Interface | ASTM TCP/IP"
         )
         subtitle.setStyleSheet(
-            "color:#5b6f82;font-size:13px;font-weight:700;"
+            "color: #64748b; font-size: 11px; font-weight: 600;"
         )
         brand_badge = QLabel("COCOHOSPITALS LIS")
         brand_badge.setObjectName("BrandBadge")
@@ -181,144 +186,195 @@ class ERBAConnector(QWidget):
         hl.addWidget(brand_badge)
         main.addWidget(header)
 
+        # ----------------------------------------------------
+        # 2. Compact Interface Configuration (2 Rows x 2 Columns)
+        # ----------------------------------------------------
         card = QFrame()
         card.setObjectName("ConfigCard")
         card.setStyleSheet("""
             #ConfigCard {
-                background:#ffffff;
-                border:1px solid #cfd9e5;
-                border-radius:6px;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
             }
             QLabel {
-                color:#25364a;
-                font-size:13px;
-                font-weight:800;
-                border:0;
-                background:transparent;
+                color: #334155;
+                font-size: 12px;
+                font-weight: 700;
+                border: 0;
+                background: transparent;
             }
             QLineEdit {
-                background:#ffffff;
-                border:1px solid #becbd8;
-                border-radius:4px;
-                padding:9px 11px;
-                font-size:14px;
-                color:#172033;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+                color: #0f172a;
+                min-height: 26px;
+                max-height: 28px;
             }
             QLineEdit:focus {
-                border:1px solid #0f6fa8;
-                background:#fbfdff;
+                border: 1px solid #0284c7;
+                background: #f8fafc;
             }
             QLineEdit[readOnly="true"] {
-                background:#f8fafc;
-                color:#243447;
-                border:1px solid #d6e0ea;
+                background: #f8fafc;
+                color: #475569;
+                border: 1px solid #e2e8f0;
             }
             QComboBox {
-                background:#ffffff;
-                border:1px solid #becbd8;
-                border-radius:4px;
-                padding:9px 11px;
-                font-size:14px;
-                font-weight:700;
-                color:#172033;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 13px;
+                font-weight: 600;
+                color: #0f172a;
+                min-height: 26px;
+                max-height: 28px;
             }
             QComboBox QAbstractItemView {
-                background:#ffffff;
-                color:#172033;
-                selection-background-color:#155f8c;
-                selection-color:#ffffff;
-                font-size:14px;
-                font-weight:700;
-                outline:0;
-                border:1px solid #a9b8c8;
+                background: #ffffff;
+                color: #0f172a;
+                selection-background-color: #0284c7;
+                selection-color: #ffffff;
+                font-size: 13px;
+                font-weight: 600;
+                outline: 0;
+                border: 1px solid #cbd5e1;
             }
             QComboBox:focus {
-                border:1px solid #0f6fa8;
-                background:#fbfdff;
+                border: 1px solid #0284c7;
+                background: #f8fafc;
             }
             QComboBox:disabled {
-                background:#f8fafc;
-                color:#243447;
-                border:1px solid #d6e0ea;
+                background: #f8fafc;
+                color: #475569;
+                border: 1px solid #e2e8f0;
             }
         """)
         cl = QVBoxLayout(card)
-        cl.setContentsMargins(16, 12, 16, 14)
-        cl.setSpacing(12)
+        cl.setContentsMargins(14, 8, 14, 10)
+        cl.setSpacing(6)
 
         ct = QLabel("Interface Configuration")
         ct.setStyleSheet(
-            "font-size:16px;font-weight:800;color:#182434;border:0;"
+            "font-size: 13px; font-weight: 800; color: #0f2f4f; border: 0;"
         )
         cl.addWidget(ct)
 
-        form = QFormLayout()
-        form.setSpacing(10)
-        form.setLabelAlignment(Qt.AlignRight)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(6)
+        grid.setContentsMargins(0, 2, 0, 0)
 
         self.loading_config = True
 
         self.ip_input = QLineEdit(self.config["analyzer_ip"])
         self.ip_input.setObjectName("ip_input")
-        self.ip_input.setPlaceholderText("Example: 10.10.10.2")
-        form.addRow("Analyzer IP:", self.ip_input)
+        self.ip_input.setPlaceholderText("e.g. 10.10.11.2")
 
         self.port_input = QLineEdit(self.config["tcp_port"])
-        self.port_input.setPlaceholderText("Example: 5002")
-        form.addRow("TCP Port:", self.port_input)
+        self.port_input.setObjectName("port_input")
+        self.port_input.setPlaceholderText("e.g. 5002")
 
         self.source_device_input = QComboBox()
+        self.source_device_input.setObjectName("source_device_input")
         self.source_device_input.setEditable(True)
         self.source_device_input.setInsertPolicy(QComboBox.NoInsert)
         self.load_source_device_options()
-        form.addRow("Source Device:", self.source_device_input)
 
         self.api_input = QLineEdit(self.config["api_endpoint"])
-        form.addRow("API Endpoint:", self.api_input)
+        self.api_input.setObjectName("api_input")
+        self.api_input.setPlaceholderText("https://...")
 
         self.loading_config = False
 
-        cl.addLayout(form)
+        ip_lbl = QLabel("Analyzer IP:")
+        ip_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        port_lbl = QLabel("TCP Port:")
+        port_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        source_lbl = QLabel("Source Device:")
+        source_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        api_lbl = QLabel("API Endpoint:")
+        api_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        # Row 1: Analyzer IP | TCP Port
+        grid.addWidget(ip_lbl, 0, 0)
+        grid.addWidget(self.ip_input, 0, 1)
+        grid.addWidget(port_lbl, 0, 2)
+        grid.addWidget(self.port_input, 0, 3)
+
+        # Row 2: Source Device | API Endpoint
+        grid.addWidget(source_lbl, 1, 0)
+        grid.addWidget(self.source_device_input, 1, 1)
+        grid.addWidget(api_lbl, 1, 2)
+        grid.addWidget(self.api_input, 1, 3)
+
+        # Stretch: Give right column (API Endpoint) more horizontal width
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 0)
+        grid.setColumnStretch(3, 5)
+
+        cl.addLayout(grid)
         main.addWidget(card)
 
+        # ----------------------------------------------------
+        # 3. Smaller Action Buttons (Single Row)
+        # ----------------------------------------------------
         buttons = QHBoxLayout()
-        buttons.setSpacing(10)
+        buttons.setSpacing(8)
 
         self.test_button = QPushButton("TEST API")
         self.edit_button = QPushButton("EDIT CONFIGURATION")
         self.connection_button = QPushButton("CONNECT")
 
         for b in (self.test_button, self.edit_button, self.connection_button):
-            b.setMinimumHeight(42)
+            b.setMinimumHeight(36)
+            b.setMaximumHeight(38)
 
         self.test_button.setStyleSheet("""
             QPushButton {
-                background:#155f8c;color:white;border:none;
-                border-radius:4px;font-weight:800;
+                background: #155f8c;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 6px 12px;
             }
-            QPushButton:hover { background:#104d72; }
-            QPushButton:disabled { background:#a6b3c1; }
+            QPushButton:hover { background: #0f4d73; }
+            QPushButton:disabled { background: #94a3b8; color: #f1f5f9; }
         """)
 
         self.edit_button.setStyleSheet("""
             QPushButton {
-                background:#ffffff;color:#0f2f4f;
-                border:1px solid #a9b8c8;
-                border-radius:4px;font-weight:800;
+                background: #ffffff;
+                color: #0f2f4f;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 6px 12px;
             }
-            QPushButton:hover { background:#f1f7fb; }
-            QPushButton:disabled {
-                color:#8a98a8;background:#eef3f8;border:1px solid #d4dde7;
-            }
+            QPushButton:hover { background: #f8fafc; border-color: #94a3b8; }
+            QPushButton:disabled { color: #94a3b8; background: #f1f5f9; border-color: #e2e8f0; }
         """)
 
         self.connection_button.setStyleSheet("""
             QPushButton {
-                background:#157f4f;color:white;border:none;
-                border-radius:4px;font-weight:800;
+                background: #157f4f;
+                color: #ffffff;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 6px 12px;
             }
-            QPushButton:hover { background:#10643f; }
-            QPushButton:disabled { background:#a6b3c1; }
+            QPushButton:hover { background: #116840; }
+            QPushButton:disabled { background: #94a3b8; color: #f1f5f9; }
         """)
 
         buttons.addWidget(self.test_button)
@@ -326,25 +382,29 @@ class ERBAConnector(QWidget):
         buttons.addWidget(self.connection_button)
         main.addLayout(buttons)
 
+        # ----------------------------------------------------
+        # 4. Compact Connection Status Bar
+        # ----------------------------------------------------
         status_card = QFrame()
         status_card.setObjectName("StatusCard")
         status_card.setStyleSheet("""
             #StatusCard {
-                background:#ffffff;
-                border:1px solid #cfd9e5;
-                border-radius:6px;
+                background: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
             }
-            QLabel { background:transparent; border:0; }
+            QLabel { background: transparent; border: 0; }
         """)
         sl = QHBoxLayout(status_card)
-        sl.setContentsMargins(14, 8, 14, 8)
+        sl.setContentsMargins(10, 4, 10, 4)
+        sl.setSpacing(6)
 
         self.status_dot = QLabel("●")
-        self.status_dot.setStyleSheet("color:#66788a;font-size:18px;border:0;")
+        self.status_dot.setStyleSheet("color: #64748b; font-size: 14px; border: 0;")
         self.status_label = QLabel("Disconnected")
         self.status_label.setObjectName("status_label")
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#536579;border:0;"
+            "font-size: 12px; font-weight: 700; color: #475569; border: 0;"
         )
 
         sl.addWidget(self.status_dot)
@@ -352,24 +412,31 @@ class ERBAConnector(QWidget):
         sl.addStretch()
         main.addWidget(status_card)
 
+        # ----------------------------------------------------
+        # 5. Activity Log (Compact)
+        # ----------------------------------------------------
+        log_header = QHBoxLayout()
+        log_header.setContentsMargins(0, 2, 0, 0)
         log_title = QLabel("Activity Log")
         log_title.setStyleSheet(
-            "font-size:16px;font-weight:800;color:#182434;"
+            "font-size: 12px; font-weight: 700; color: #0f2f4f;"
         )
-        main.addWidget(log_title)
+        log_header.addWidget(log_title)
+        log_header.addStretch()
+        main.addLayout(log_header)
 
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setMinimumHeight(320)
+        self.log_box.setMinimumHeight(150)
         self.log_box.setStyleSheet("""
             QTextEdit {
-                background:#101827;
-                color:#dbe7f3;
-                border:1px solid #243044;
-                border-radius:6px;
-                padding:10px;
-                font-family:monospace;
-                font-size:13px;
+                background: #0f172a;
+                color: #e2e8f0;
+                border: 1px solid #1e293b;
+                border-radius: 4px;
+                padding: 6px 8px;
+                font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+                font-size: 12px;
             }
         """)
         main.addWidget(self.log_box)
@@ -767,13 +834,13 @@ class ERBAConnector(QWidget):
         self.reconnect_delay = min(self.reconnect_delay * 2.0, self.max_reconnect_delay)
 
         self.status_dot.setStyleSheet(
-            "color:#d97706;font-size:18px;border:0;background:transparent;"
+            "color:#d97706;font-size:14px;border:0;background:transparent;"
         )
         self.status_label.setText(
             f"Disconnected — Reconnecting in {int(delay)}s (attempt {self.reconnect_attempts})..."
         )
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#b45309;border:0;background:transparent;"
+            "font-size:12px;font-weight:700;color:#b45309;border:0;background:transparent;"
         )
         self.log_message(
             f"Automatic reconnection scheduled in {int(delay)}s (attempt {self.reconnect_attempts})...",
@@ -899,13 +966,13 @@ class ERBAConnector(QWidget):
         # listener prints LISTENING SUCCESSFULLY.
         port = self.port_input.text().strip()
         self.status_dot.setStyleSheet(
-            "color:#d97706;font-size:18px;border:0;background:transparent;"
+            "color:#d97706;font-size:14px;border:0;background:transparent;"
         )
         self.status_label.setText(
             f"Starting — Opening TCP {port}..."
         )
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#b45309;border:0;background:transparent;"
+            "font-size:12px;font-weight:700;color:#b45309;border:0;background:transparent;"
         )
         self.log_message(
             "Listener process started; waiting for TCP bind confirmation..."
@@ -942,13 +1009,13 @@ class ERBAConnector(QWidget):
         self.reconnect_attempts = 0
 
         self.status_dot.setStyleSheet(
-            "color:#16a34a;font-size:18px;border:0;background:transparent;"
+            "color:#16a34a;font-size:14px;border:0;background:transparent;"
         )
         self.status_label.setText(
             f"Connected — Listening on TCP {port}"
         )
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#15803d;border:0;background:transparent;"
+            "font-size:12px;font-weight:700;color:#15803d;border:0;background:transparent;"
         )
         self.connection_button.setText("DISCONNECT")
         self.connection_button.setEnabled(True)
@@ -1103,11 +1170,11 @@ class ERBAConnector(QWidget):
     def set_disconnected_ui(self):
         self.connected = False
         self.status_dot.setStyleSheet(
-            "color:#64748b;font-size:18px;border:0;background:transparent;"
+            "color:#64748b;font-size:14px;border:0;background:transparent;"
         )
         self.status_label.setText("Disconnected")
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#475569;border:0;background:transparent;"
+            "font-size:12px;font-weight:700;color:#475569;border:0;background:transparent;"
         )
         self.connection_button.setText("CONNECT")
         self.connection_button.setEnabled(True)
@@ -1203,7 +1270,7 @@ def main():
                 import ctypes
                 user32 = getattr(ctypes.windll, "user32", None)
                 if user32:
-                    hwnd = user32.FindWindowW(None, "Cocohospitals LIS - Analyzer Connector")
+                    hwnd = user32.FindWindowW(None, "COCOHOSPITALS LIS - Analyzer Connector")
                     if hwnd:
                         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                         user32.SetForegroundWindow(hwnd)
