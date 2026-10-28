@@ -1,3 +1,10 @@
+# Core dependencies for COCOHOSPITALS LIS - Analyzer Connector
 requests>=2.31.0
 python-dotenv>=1.0.0
-PySide6
+
+# GUI Framework (PyQt5 works across both 32-bit and 64-bit Windows Python)
+PyQt5>=5.15.10
+
+# Build and Asset dependencies (Optional for running source, required for packaging)
+pillow>=10.0.0
+pyinstaller>=6.0.0
