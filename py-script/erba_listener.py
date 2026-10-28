@@ -25,8 +25,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import select
 import socket
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -72,6 +74,10 @@ CONFIGURED_SOURCE_DEVICE = os.getenv(
 
 LOG_DIR = Path(os.getenv("LOG_DIR", "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LISTENER_STOP_FILE = Path(
+    os.getenv("LISTENER_STOP_FILE", str(LOG_DIR / ".listener_stop.flag"))
+)
 
 
 # ---------------------------------------------------------------------------
@@ -328,36 +334,77 @@ def send_to_api(
         json.dumps(payload, ensure_ascii=False),
     )
 
-    try:
-        response = requests.post(
-            url,
-            json=payload,
-            headers=headers,
-            timeout=API_TIMEOUT,
-        )
+    retry_delay = 2.0
+    max_delay = 60.0
+    attempt = 0
 
-        logger.info(
-            "API RESPONSE: HTTP %s | %s",
-            response.status_code,
-            response.text[:2000],
-        )
+    while not stop_requested():
+        attempt += 1
+        try:
+            logger.info("API POST attempt %d: %s", attempt, url)
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=API_TIMEOUT,
+            )
 
-        response.raise_for_status()
+            logger.info(
+                "API RESPONSE: HTTP %s | %s",
+                response.status_code,
+                response.text[:2000],
+            )
 
-        logger.info(
-            "API SUCCESS: source_device=%s sample_id=%s",
-            parsed.get("source_device"),
-            parsed.get("sample_id"),
-        )
+            response.raise_for_status()
 
-        return response
+            logger.info(
+                "API SUCCESS: source_device=%s sample_id=%s",
+                parsed.get("source_device"),
+                parsed.get("sample_id"),
+            )
 
-    except requests.RequestException as exc:
-        logger.exception(
-            "API REQUEST FAILED: %s",
-            exc,
-        )
-        return None
+            return response
+
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            logger.warning(
+                "Remote API endpoint unavailable: %s. Retrying in %.1fs (attempt %d)...",
+                exc,
+                retry_delay,
+                attempt,
+            )
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status in (408, 429, 500, 502, 503, 504):
+                logger.warning(
+                    "Remote API server error (HTTP %s): %s. Retrying in %.1fs (attempt %d)...",
+                    status,
+                    exc,
+                    retry_delay,
+                    attempt,
+                )
+            else:
+                logger.error(
+                    "Unrecoverable API error: HTTP %s: %s",
+                    status,
+                    exc,
+                )
+                return exc.response
+        except requests.RequestException as exc:
+            logger.warning(
+                "API request exception: %s. Retrying in %.1fs (attempt %d)...",
+                exc,
+                retry_delay,
+                attempt,
+            )
+
+        elapsed = 0.0
+        while elapsed < retry_delay and not stop_requested():
+            time.sleep(0.5)
+            elapsed += 0.5
+
+        retry_delay = min(retry_delay * 2.0, max_delay)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +468,22 @@ def process_complete_message(
 
 
 # ---------------------------------------------------------------------------
+# Graceful stop control
+# ---------------------------------------------------------------------------
+
+def stop_requested() -> bool:
+    return LISTENER_STOP_FILE.exists()
+
+
+def clear_stop_request():
+    try:
+        if LISTENER_STOP_FILE.exists():
+            LISTENER_STOP_FILE.unlink()
+    except Exception:
+        logger.exception("Unable to clear listener stop flag.")
+
+
+# ---------------------------------------------------------------------------
 # TCP connection
 # ---------------------------------------------------------------------------
 
@@ -431,6 +494,14 @@ def handle_connection(conn: socket.socket, addr):
         addr[1],
     )
 
+    try:
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):
+            # Enable TCP keepalive: probe after 30s idle, retry every 5s
+            conn.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 30000, 5000))
+    except Exception:
+        pass
+
     conn.settimeout(60)
 
     buffer = bytearray()
@@ -440,6 +511,17 @@ def handle_connection(conn: socket.socket, addr):
 
     try:
         while True:
+            # select() lets us check the stop flag without disconnecting an
+            # analyzer that is simply idle between ASTM messages.
+            if stop_requested():
+                logger.info("Stop requested. Closing active TCP connection.")
+                break
+
+            readable, _, _ = select.select([conn], [], [], 1.0)
+
+            if not readable:
+                continue
+
             data = conn.recv(4096)
 
             if not data:
@@ -551,6 +633,10 @@ def handle_connection(conn: socket.socket, addr):
 
     finally:
         try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
             conn.close()
         except Exception:
             pass
@@ -563,6 +649,8 @@ def handle_connection(conn: socket.socket, addr):
 # ---------------------------------------------------------------------------
 
 def main():
+    clear_stop_request()
+
     logger.info("=" * 80)
     logger.info("ERBA / MultiXL ASTM TCP HOST LISTENER")
     logger.info("=" * 80)
@@ -587,55 +675,93 @@ def main():
         "LOG DIR: %s",
         LOG_DIR.resolve(),
     )
+    logger.info(
+        "STOP FILE: %s",
+        LISTENER_STOP_FILE.resolve(),
+    )
     logger.info("Press Ctrl+C to stop.")
     logger.info("=" * 80)
 
-    server = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_STREAM,
-    )
+    retry_delay = 2.0
+    max_delay = 60.0
+    bind_attempts = 0
 
-    server.setsockopt(
-        socket.SOL_SOCKET,
-        socket.SO_REUSEADDR,
-        1,
-    )
-
-    try:
-        server.bind(
-            (LISTEN_HOST, LISTEN_PORT)
+    while not stop_requested():
+        server = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_STREAM,
         )
 
-        server.listen(5)
+        if os.name == 'nt':
+            # Prevent duplicate listeners hijacking the port on Windows
+            server.setsockopt(socket.SOL_SOCKET, getattr(socket, 'SO_EXCLUSIVEADDRUSE', 0), 1)
+        else:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        logger.info(
-            "LISTENING SUCCESSFULLY on TCP %s",
-            LISTEN_PORT,
-        )
+        # Timeout allows the loop to notice LISTENER_STOP_FILE quickly.
+        server.settimeout(1.0)
 
-        while True:
-            conn, addr = server.accept()
-            handle_connection(
-                conn,
-                addr,
+        try:
+            server.bind((LISTEN_HOST, LISTEN_PORT))
+            server.listen(5)
+
+            logger.info(
+                "LISTENING SUCCESSFULLY on TCP %s",
+                LISTEN_PORT,
             )
 
-    except KeyboardInterrupt:
-        logger.info("Stopped by user.")
+            # Reset backoff on successful bind
+            retry_delay = 2.0
+            bind_attempts = 0
 
-    except OSError as exc:
-        logger.exception(
-            "Could not bind to %s:%s. "
-            "Check: netstat -ano | findstr :%s",
-            LISTEN_HOST,
-            LISTEN_PORT,
-            LISTEN_PORT,
-        )
-        raise exc
+            while not stop_requested():
+                try:
+                    conn, addr = server.accept()
+                except socket.timeout:
+                    continue
 
-    finally:
-        server.close()
+                handle_connection(
+                    conn,
+                    addr,
+                )
+
+            logger.info("Graceful stop requested. Listener shutting down.")
+            return 0
+
+        except KeyboardInterrupt:
+            logger.info("Stopped by user.")
+            return 0
+
+        except OSError as exc:
+            if stop_requested():
+                logger.info("Listener stopped during shutdown: %s", exc)
+                return 0
+
+            bind_attempts += 1
+            logger.warning(
+                "Could not bind to %s:%s (%s). Reconnection attempt %d in %.1fs...",
+                LISTEN_HOST,
+                LISTEN_PORT,
+                exc,
+                bind_attempts,
+                retry_delay,
+            )
+
+            elapsed = 0.0
+            while elapsed < retry_delay and not stop_requested():
+                time.sleep(0.5)
+                elapsed += 0.5
+
+            retry_delay = min(retry_delay * 2.0, max_delay)
+
+        finally:
+            try:
+                server.close()
+            except Exception:
+                pass
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

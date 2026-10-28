@@ -1,33 +1,38 @@
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
 
-# Virtual environments
+# PyInstaller
+*.manifest
+*.spec
+build/
+build-listener/
+dist-listener/
+desktop-app/build/
+desktop-app/dist/
+
+# Virtual Environments
 venv/
 env/
 .venv/
+ENV/
 
-# Logs
+# Logs & Runtime files
 logs/
 *.log
+_listener_temp/
+_local_app_data/
+*.flag
 
-# PyInstaller
-build/
-dist/
-
-# IDE
+# Editor & OS files
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
+.kombai/
 
-# Environment / secrets
+# Environment secrets / local overrides
 .env
 .env.*
-
-# Local configuration
 *.local.json
-py-script-backup/

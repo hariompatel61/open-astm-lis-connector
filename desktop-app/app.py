@@ -2,27 +2,60 @@ import os
 import sys
 import json
 import logging
+import site
 import traceback
 from pathlib import Path
 
 import requests
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
-    QVBoxLayout, QHBoxLayout, QFormLayout, QTextEdit, QFrame,
-    QMessageBox,
-)
-from PySide6.QtCore import QProcess, Qt
+try:
+    from PyQt5.QtWidgets import (
+        QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
+        QVBoxLayout, QHBoxLayout, QFormLayout, QTextEdit, QFrame,
+        QMessageBox,
+    )
+    from PyQt5.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
+except ImportError:
+    from PySide6.QtWidgets import (
+        QApplication, QWidget, QLabel, QLineEdit, QPushButton, QComboBox,
+        QVBoxLayout, QHBoxLayout, QFormLayout, QTextEdit, QFrame,
+        QMessageBox,
+    )
+    from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 
 
 # ============================================================
 # ERBA / MultiXL Connector - Desktop UI
 # ============================================================
 
-BASE_DIR = Path(__file__).resolve().parent
-LISTENER_DIR = BASE_DIR.parent / "py-script"
-LISTENER_FILE = LISTENER_DIR / "erba_listener.py"
-CONFIG_FILE = BASE_DIR / "erba_connector_config.json"
-DEVICE_OPTIONS_FILE = BASE_DIR / "source_devices.json"
+# Resolve files relative to the folder containing the EXE when frozen.
+# In development, use the desktop-app source directory.
+import shutil
+
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    DATA_DIR = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "COCOHOSPITALS" / "LIS Analyzer Connector"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    DATA_DIR = BASE_DIR
+
+# The production build ships erba_listener.exe beside the GUI EXE.
+LISTENER_DIR = BASE_DIR
+LISTENER_FILE = LISTENER_DIR / "erba_listener.exe"
+
+LISTENER_STOP_FILE = DATA_DIR / "_listener_stop.flag"
+LISTENER_TEMP_DIR = DATA_DIR / "_listener_temp"
+
+CONFIG_FILE = DATA_DIR / "erba_connector_config.json"
+DEVICE_OPTIONS_FILE = DATA_DIR / "source_devices.json"
+
+# Copy default config from BASE_DIR to DATA_DIR if missing
+if getattr(sys, "frozen", False):
+    if not CONFIG_FILE.exists() and (BASE_DIR / "erba_connector_config.json").exists():
+        shutil.copy2(BASE_DIR / "erba_connector_config.json", CONFIG_FILE)
+    if not DEVICE_OPTIONS_FILE.exists() and (BASE_DIR / "source_devices.json").exists():
+        shutil.copy2(BASE_DIR / "source_devices.json", DEVICE_OPTIONS_FILE)
+
 CONFIG_KEYS = (
     "analyzer_ip",
     "tcp_port",
@@ -31,7 +64,7 @@ CONFIG_KEYS = (
 )
 
 logging.basicConfig(
-    filename=str(BASE_DIR / "erba_connector.log"),
+    filename=str(DATA_DIR / "erba_connector.log"),
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
@@ -47,7 +80,22 @@ class ERBAConnector(QWidget):
         self.listener_process = None
         self.loading_config = False
         self.edit_mode = False
+        self.was_connected_before_edit = False
+        self.stopping_listener = False
         self.config = self.load_config()
+
+        # Continuous 24/7 background operation & reconnection
+        self.auto_reconnect_enabled = True
+        self.reconnect_delay = 2.0
+        self.min_reconnect_delay = 2.0
+        self.max_reconnect_delay = 60.0
+        self.reconnect_attempts = 0
+
+        # Make the local folders used by the listener deterministic and writable.
+        try:
+            LISTENER_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            logger.exception("Unable to create listener temp directory")
 
         try:
             self.setWindowTitle("Cocohospitals LIS - Analyzer Connector")
@@ -61,6 +109,9 @@ class ERBAConnector(QWidget):
                     f"WARNING: Listener not found: {LISTENER_FILE}",
                     "WARNING",
                 )
+            else:
+                # Automatically connect on boot / startup for 24/7 background operation
+                QTimer.singleShot(1000, self.auto_start_connection)
         except Exception as exc:
             logger.exception("Application initialization failed")
             self.show_error("Application Error", str(exc))
@@ -208,6 +259,7 @@ class ERBAConnector(QWidget):
         self.loading_config = True
 
         self.ip_input = QLineEdit(self.config["analyzer_ip"])
+        self.ip_input.setObjectName("ip_input")
         self.ip_input.setPlaceholderText("Example: 10.10.10.2")
         form.addRow("Analyzer IP:", self.ip_input)
 
@@ -290,6 +342,7 @@ class ERBAConnector(QWidget):
         self.status_dot = QLabel("●")
         self.status_dot.setStyleSheet("color:#66788a;font-size:18px;border:0;")
         self.status_label = QLabel("Disconnected")
+        self.status_label.setObjectName("status_label")
         self.status_label.setStyleSheet(
             "font-size:14px;font-weight:800;color:#536579;border:0;"
         )
@@ -327,12 +380,8 @@ class ERBAConnector(QWidget):
         self.edit_button.clicked.connect(self.edit_configuration)
         self.connection_button.clicked.connect(self.toggle_connection)
 
-        for field in self.config_text_fields():
-            field.textChanged.connect(self.configuration_changed)
-        self.source_device_input.currentTextChanged.connect(
-            self.configuration_changed
-        )
-
+        # IMPORTANT: configuration is saved only when the user presses
+        # SAVE CONFIGURATION. Do not restart the listener while typing.
         self.set_config_edit_mode(False)
 
     # ========================================================
@@ -470,17 +519,9 @@ class ERBAConnector(QWidget):
         return str(value or "").strip().upper()
 
     def configuration_changed(self):
-        if self.loading_config:
-            return
-
-        self.save_config()
-
-        if self.connected or self.listener_process is not None:
-            self.log_message(
-                "Configuration changed; disconnecting listener.",
-                "WARNING",
-            )
-            self.disconnect()
+        # Kept for backward compatibility with older signal connections.
+        # Current UI intentionally does not auto-save while typing.
+        return
 
     def set_config_edit_mode(self, editing):
         self.edit_mode = editing
@@ -500,21 +541,68 @@ class ERBAConnector(QWidget):
 
     def edit_configuration(self):
         if self.edit_mode:
-            self.save_source_device_option()
-            self.save_config()
-            self.set_config_edit_mode(False)
-            self.log_message("Configuration saved.")
+            try:
+                # Validate the NEW configuration before writing it.
+                self.validate_configuration()
+
+                self.save_source_device_option()
+                self.save_config()
+                self.set_config_edit_mode(False)
+
+                self.log_message("Configuration saved successfully.", "SUCCESS")
+
+                # If the listener was previously running, restart it with
+                # the new configuration. This is the important part that
+                # allows IP A -> IP B -> IP A without manual restart.
+                if self.was_connected_before_edit:
+                    self.log_message(
+                        "Restarting ASTM listener with new configuration..."
+                    )
+                    self.connect()
+                else:
+                    self.set_disconnected_ui()
+
+            except ValueError as exc:
+                self.log_message(str(exc), "ERROR")
+                self.show_error("Invalid Configuration", str(exc))
+            except Exception as exc:
+                logger.exception("Configuration save failed")
+                self.log_message(
+                    f"Configuration save failed: {exc}",
+                    "ERROR",
+                )
+                self.set_disconnected_ui()
             return
 
-        if self.connected or self.listener_process is not None:
+        # Enter edit mode. Stop the listener first, but remember whether it
+        # was running so SAVE can automatically start it again.
+        self.was_connected_before_edit = (
+            self.connected or
+            (self.listener_process is not None and
+             self.listener_process.state() != QProcess.NotRunning)
+        )
+
+        if self.was_connected_before_edit:
             self.log_message(
-                "Edit requested; disconnecting previous listener.",
+                "Editing configuration: stopping current listener...",
                 "WARNING",
             )
-            self.disconnect()
+            if not self.stop_listener(wait_ms=5000):
+                self.show_error(
+                    "Listener Stop Failed",
+                    "The current ASTM listener could not be stopped safely. "
+                    "Configuration editing was cancelled.",
+                )
+                return
 
         self.set_config_edit_mode(True)
+        self.edit_button.setEnabled(True)
+        self.connection_button.setEnabled(False)
+        self.test_button.setEnabled(False)
         self.ip_input.setFocus()
+        self.log_message(
+            "Configuration edit mode enabled. Change values and press SAVE CONFIGURATION."
+        )
 
     # ========================================================
     # LOGGING
@@ -662,22 +750,75 @@ class ERBAConnector(QWidget):
 
         return endpoint[:pos].rstrip("/"), endpoint[pos:]
 
+    def auto_start_connection(self):
+        if self.connected or self.edit_mode:
+            return
+        self.log_message("Initializing automatic connection for 24/7 background operation...")
+        self.connect()
+
+    def schedule_reconnect(self):
+        if self.edit_mode or self.connected or not self.auto_reconnect_enabled:
+            return
+        if self.listener_process is not None and self.listener_process.state() != QProcess.NotRunning:
+            return
+
+        self.reconnect_attempts += 1
+        delay = self.reconnect_delay
+        self.reconnect_delay = min(self.reconnect_delay * 2.0, self.max_reconnect_delay)
+
+        self.status_dot.setStyleSheet(
+            "color:#d97706;font-size:18px;border:0;background:transparent;"
+        )
+        self.status_label.setText(
+            f"Disconnected — Reconnecting in {int(delay)}s (attempt {self.reconnect_attempts})..."
+        )
+        self.status_label.setStyleSheet(
+            "font-size:14px;font-weight:800;color:#b45309;border:0;background:transparent;"
+        )
+        self.log_message(
+            f"Automatic reconnection scheduled in {int(delay)}s (attempt {self.reconnect_attempts})...",
+            "WARNING",
+        )
+        QTimer.singleShot(int(delay * 1000), self._do_reconnect)
+
+    def _do_reconnect(self):
+        if self.edit_mode or self.connected or not self.auto_reconnect_enabled:
+            return
+        if self.listener_process is not None and self.listener_process.state() != QProcess.NotRunning:
+            return
+        self.log_message(f"Attempting automatic reconnection (attempt {self.reconnect_attempts})...")
+        self.connect()
+
     def connect(self):
+        self.auto_reconnect_enabled = True
         try:
             ip, port, source, api = self.validate_configuration()
 
             if self.listener_process is not None:
-                self.log_message(
-                    "Listener is already running.",
-                    "WARNING",
-                )
-                return
+                if self.listener_process.state() != QProcess.NotRunning:
+                    self.log_message(
+                        "Listener is already running.",
+                        "WARNING",
+                    )
+                    return
+                self.listener_process = None
 
             if not LISTENER_FILE.exists():
                 raise FileNotFoundError(
-                    f"Existing ASTM listener not found:\n"
-                    f"{LISTENER_FILE}"
+                    "ASTM listener executable not found.\n\n"
+                    f"Expected:\n{LISTENER_FILE}\n\n"
+                    "Build erba_listener.exe and place it in the same "
+                    "folder as COCOHOSPITALS-LIS-Analyzer-Connector.exe."
                 )
+
+            # A previous stop request must never affect the next listener.
+            try:
+                if LISTENER_STOP_FILE.exists():
+                    LISTENER_STOP_FILE.unlink()
+            except Exception:
+                logger.exception("Unable to clear listener stop flag")
+
+            LISTENER_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
             self.log_message("Validating configuration...")
             self.log_message(f"Analyzer IP: {ip}")
@@ -685,7 +826,7 @@ class ERBAConnector(QWidget):
             self.log_message(f"Source Device: {source}")
             self.log_message(f"API Endpoint: {api}")
             self.log_message("Configuration validation successful.")
-            self.log_message("Starting existing ASTM listener...")
+            self.log_message("Starting ASTM listener...")
 
             self.connection_button.setText("STARTING...")
             self.connection_button.setEnabled(False)
@@ -697,11 +838,18 @@ class ERBAConnector(QWidget):
             self.listener_process.setWorkingDirectory(str(LISTENER_DIR))
 
             env = self.listener_process.processEnvironment()
+            if env.isEmpty():
+                env = QProcessEnvironment.systemEnvironment()
             env.insert("LISTEN_HOST", "0.0.0.0")
             env.insert("LISTEN_PORT", str(port))
             env.insert("SOURCE_DEVICE", source)
             env.insert("API_ENABLED", "true")
-            env.insert("LOG_DIR", str(LISTENER_DIR / "logs"))
+            env.insert("LOG_DIR", str(DATA_DIR / "logs"))
+            env.insert("LISTENER_STOP_FILE", str(LISTENER_STOP_FILE))
+
+            # PyInstaller --onefile needs a writable extraction/temp directory.
+            env.insert("TEMP", str(LISTENER_TEMP_DIR))
+            env.insert("TMP", str(LISTENER_TEMP_DIR))
 
             api_base, api_path = self.split_api_endpoint(api)
             env.insert("API_BASE_URL", api_base)
@@ -725,10 +873,10 @@ class ERBAConnector(QWidget):
                 self.listener_finished
             )
 
-            # -u = unbuffered, so ASTM logs appear immediately in UI.
+            # Production always launches the dedicated listener EXE.
             self.listener_process.start(
-                sys.executable,
-                ["-u", str(LISTENER_FILE)],
+                str(LISTENER_FILE),
+                [],
             )
 
         except ValueError as exc:
@@ -746,33 +894,21 @@ class ERBAConnector(QWidget):
     # ========================================================
 
     def listener_started(self):
-        self.connected = True
-
+        # Process started != TCP listener successfully bound.
+        # Actual CONNECTED state is set by read_listener_output() after the
+        # listener prints LISTENING SUCCESSFULLY.
         port = self.port_input.text().strip()
-
         self.status_dot.setStyleSheet(
-            "color:#16a34a;font-size:18px;border:0;background:transparent;"
+            "color:#d97706;font-size:18px;border:0;background:transparent;"
         )
         self.status_label.setText(
-            f"Connected — Listening on TCP {port}"
+            f"Starting — Opening TCP {port}..."
         )
         self.status_label.setStyleSheet(
-            "font-size:14px;font-weight:800;color:#15803d;border:0;background:transparent;"
-        )
-
-        # This is now the only connection control.
-        self.connection_button.setText("DISCONNECT")
-        self.connection_button.setEnabled(True)
-        self.test_button.setEnabled(True)
-        self.edit_button.setEnabled(True)
-        self.set_config_edit_mode(False)
-
-        self.log_message(
-            f"Listener started successfully on TCP {port}.",
-            "SUCCESS",
+            "font-size:14px;font-weight:800;color:#b45309;border:0;background:transparent;"
         )
         self.log_message(
-            "Waiting for ASTM data from analyzer..."
+            "Listener process started; waiting for TCP bind confirmation..."
         )
 
     def read_listener_output(self):
@@ -784,8 +920,46 @@ class ERBAConnector(QWidget):
 
         for line in text.splitlines():
             line = line.rstrip()
-            if line:
-                self.log_message(line, self.detect_level(line))
+            if not line:
+                continue
+
+            level = self.detect_level(line)
+            self.log_message(line, level)
+
+            if "LISTENING SUCCESSFULLY ON TCP" in line.upper():
+                self.listener_ready()
+
+    def listener_ready(self):
+        self.connected = True
+        port = self.port_input.text().strip()
+
+        if self.reconnect_attempts > 0:
+            self.log_message(
+                "Connection restored successfully. Resetting retry delay.",
+                "SUCCESS",
+            )
+        self.reconnect_delay = self.min_reconnect_delay
+        self.reconnect_attempts = 0
+
+        self.status_dot.setStyleSheet(
+            "color:#16a34a;font-size:18px;border:0;background:transparent;"
+        )
+        self.status_label.setText(
+            f"Connected — Listening on TCP {port}"
+        )
+        self.status_label.setStyleSheet(
+            "font-size:14px;font-weight:800;color:#15803d;border:0;background:transparent;"
+        )
+        self.connection_button.setText("DISCONNECT")
+        self.connection_button.setEnabled(True)
+        self.test_button.setEnabled(True)
+        self.edit_button.setEnabled(True)
+        self.set_config_edit_mode(False)
+        self.log_message(
+            f"Listener is READY and listening on TCP {port}.",
+            "SUCCESS",
+        )
+        self.log_message("Waiting for ASTM data from analyzer...")
 
     def read_listener_error(self):
         if not self.listener_process:
@@ -809,12 +983,33 @@ class ERBAConnector(QWidget):
             QProcess.UnknownError: "Unknown listener process error.",
         }
         message = names.get(error, f"Listener process error: {error}")
+
+        # During a normal stop/restart, QProcess can report a transient
+        # process error. Do not treat an intentional stop as a connection
+        # failure. The finished() handler will complete the transition.
+        if getattr(self, "stopping_listener", False):
+            logger.info("Intentional listener stop: %s", message)
+            return
+
         logger.error(message)
         self.log_message(message, "ERROR")
+        self.listener_process = None
         self.set_disconnected_ui()
+        if not self.edit_mode and self.auto_reconnect_enabled:
+            self.schedule_reconnect()
 
     def listener_finished(self, exit_code, exit_status):
-        if exit_code == 0:
+        intentional = (
+            getattr(self, "stopping_listener", False) or
+            self.edit_mode or
+            not self.auto_reconnect_enabled
+        )
+
+        if intentional:
+            self.log_message(
+                f"Listener stopped cleanly for restart. Exit code: {exit_code}."
+            )
+        elif exit_code == 0:
             self.log_message(
                 f"Listener stopped. Exit code: {exit_code}."
             )
@@ -826,33 +1021,74 @@ class ERBAConnector(QWidget):
             )
 
         self.listener_process = None
-        self.set_disconnected_ui()
+        self.connected = False
+
+        if not intentional:
+            self.set_disconnected_ui()
+            self.schedule_reconnect()
 
     # ========================================================
-    # DISCONNECT
+    # DISCONNECT / LISTENER STOP
     # ========================================================
+
+    def stop_listener(self, wait_ms=5000):
+        """Request a graceful listener shutdown using the stop flag."""
+        process = self.listener_process
+
+        if process is None or process.state() == QProcess.NotRunning:
+            self.listener_process = None
+            return True
+
+        self.stopping_listener = True
+
+        try:
+            LISTENER_STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
+            LISTENER_STOP_FILE.touch()
+
+            self.log_message(
+                "Stop signal sent to ASTM listener; waiting for process to exit..."
+            )
+
+            if process.waitForFinished(wait_ms):
+                self.listener_process = None
+                self.connected = False
+                return True
+
+            # Safety fallback: if the listener did not react to the stop flag,
+            # terminate the process so the TCP port cannot remain occupied.
+            self.log_message(
+                "Listener did not stop within timeout; terminating process.",
+                "WARNING",
+            )
+            process.kill()
+            process.waitForFinished(2000)
+            self.listener_process = None
+            self.connected = False
+            return True
+
+        except Exception:
+            logger.exception("Listener stop failed")
+            return False
+        finally:
+            self.stopping_listener = False
 
     def disconnect(self):
         try:
+            self.auto_reconnect_enabled = False  # User explicitly requested disconnection
             self.log_message("Stopping ASTM listener...")
             self.connection_button.setText("STOPPING...")
             self.connection_button.setEnabled(False)
             self.edit_button.setEnabled(False)
+            self.test_button.setEnabled(False)
 
-            process = self.listener_process
+            if not self.stop_listener(wait_ms=5000):
+                raise RuntimeError("Listener could not be stopped safely.")
 
-            if process is not None:
-                if process.state() != QProcess.NotRunning:
-                    process.terminate()
-                    if not process.waitForFinished(2000):
-                        self.log_message(
-                            "Listener did not stop gracefully; killing it.",
-                            "WARNING",
-                        )
-                        process.kill()
-                        process.waitForFinished(1000)
-
-                self.listener_process = None
+            try:
+                if LISTENER_STOP_FILE.exists():
+                    LISTENER_STOP_FILE.unlink()
+            except Exception:
+                logger.exception("Unable to remove listener stop flag")
 
             self.set_disconnected_ui()
             self.log_message("Disconnected.", "SUCCESS")
@@ -861,6 +1097,7 @@ class ERBAConnector(QWidget):
             logger.exception("Disconnect failed")
             self.log_message(f"Disconnect error: {exc}", "ERROR")
             self.listener_process = None
+            self.stopping_listener = False
             self.set_disconnected_ui()
 
     def set_disconnected_ui(self):
@@ -911,14 +1148,13 @@ class ERBAConnector(QWidget):
             self.save_config()
 
             if self.listener_process is not None:
-                process = self.listener_process
-                if process.state() != QProcess.NotRunning:
-                    process.terminate()
-                    if not process.waitForFinished(2000):
-                        process.kill()
-                        process.waitForFinished(1000)
+                self.stop_listener(wait_ms=5000)
 
-                self.listener_process = None
+            try:
+                if LISTENER_STOP_FILE.exists():
+                    LISTENER_STOP_FILE.unlink()
+            except Exception:
+                pass
 
             logger.info("Application closed.")
         except Exception:
@@ -927,7 +1163,54 @@ class ERBAConnector(QWidget):
         event.accept()
 
 
+_single_instance_mutex = None
+
+
+def acquire_single_instance_lock():
+    global _single_instance_mutex
+    if os.name != "nt":
+        return True
+
+    import ctypes
+    ERROR_ALREADY_EXISTS = 183
+    ERROR_ACCESS_DENIED = 5
+
+    kernel32 = ctypes.windll.kernel32
+    for prefix in ("Global\\", "Local\\"):
+        mutex_name = f"{prefix}COCOHOSPITALS_LIS_Connector_SingleInstance"
+        mutex = kernel32.CreateMutexW(None, False, mutex_name)
+        err = kernel32.GetLastError()
+        if err == ERROR_ALREADY_EXISTS:
+            if mutex:
+                kernel32.CloseHandle(mutex)
+            return False
+        if mutex:
+            _single_instance_mutex = mutex
+            return True
+        if err != ERROR_ACCESS_DENIED:
+            break
+    return True
+
+
 def main():
+    if not acquire_single_instance_lock():
+        logger.warning(
+            "Another instance of COCOHOSPITALS LIS Analyzer Connector is already running. Exiting cleanly."
+        )
+        print("Another instance is already running. Exiting cleanly.")
+        if os.name == "nt":
+            try:
+                import ctypes
+                user32 = getattr(ctypes.windll, "user32", None)
+                if user32:
+                    hwnd = user32.FindWindowW(None, "Cocohospitals LIS - Analyzer Connector")
+                    if hwnd:
+                        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                        user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        return 0
+
     app = QApplication(sys.argv)
     window = ERBAConnector()
     sys.excepthook = window.handle_exception
