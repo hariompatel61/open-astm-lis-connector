@@ -239,17 +239,16 @@ def find_sample_id(parsed: dict) -> str:
 
 
 def find_source_device(parsed: dict) -> str:
-    header = parsed.get("header") or {}
-    sender = str(header.get("sender") or "").strip()
-    sender_name = str(header.get("sender_name") or "").strip()
+    """
+    Determine the source device for the incoming message:
+    1. If a source device is configured/selected in the UI or environment
+       (e.g., MAGLUMI, ERRBA7689, or any added name), use that exact value.
+    2. If nothing is selected or configured, return "default".
+    """
+    if CONFIGURED_SOURCE_DEVICE:
+        return CONFIGURED_SOURCE_DEVICE
 
-    if sender and sender_name:
-        return f"{sender}_{sender_name}"
-
-    if sender:
-        return sender
-
-    return CONFIGURED_SOURCE_DEVICE
+    return "default"
 
 
 # ---------------------------------------------------------------------------

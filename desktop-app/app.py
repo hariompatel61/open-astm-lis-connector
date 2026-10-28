@@ -464,7 +464,7 @@ class ERBAConnector(QWidget):
 
     def load_source_device_options(self):
         configured_source = self.normalize_source_device(
-            self.config["source_device"]
+            self.config.get("source_device") or "default"
         )
         options = []
 
@@ -481,15 +481,19 @@ class ERBAConnector(QWidget):
         except Exception:
             logger.exception("Unable to load source device options")
 
+        if "default" not in options:
+            options.insert(0, "default")
+
         if configured_source and configured_source not in options:
             options.append(configured_source)
 
+        self.source_device_input.clear()
         self.source_device_input.addItems(options)
 
         if configured_source:
             self.source_device_input.setEditText(configured_source)
         else:
-            self.source_device_input.setEditText("")
+            self.source_device_input.setEditText("default")
 
     def save_source_device_option(self):
         source = self.normalize_source_device(
@@ -497,7 +501,7 @@ class ERBAConnector(QWidget):
         )
 
         if not source:
-            return
+            source = "default"
 
         self.source_device_input.setEditText(source)
 
@@ -515,6 +519,9 @@ class ERBAConnector(QWidget):
                             options.append(option)
         except Exception:
             logger.exception("Unable to read source device options")
+
+        if "default" not in options:
+            options.insert(0, "default")
 
         if source not in options:
             options.append(source)
@@ -552,15 +559,19 @@ class ERBAConnector(QWidget):
         except Exception:
             logger.exception("Unable to load saved configuration")
 
+        if not config.get("source_device"):
+            config["source_device"] = "default"
+
         return config
 
     def current_config(self):
+        source = self.normalize_source_device(
+            self.source_device_input.currentText()
+        )
         return {
             "analyzer_ip": self.ip_input.text(),
             "tcp_port": self.port_input.text(),
-            "source_device": self.normalize_source_device(
-                self.source_device_input.currentText()
-            ),
+            "source_device": source if source else "default",
             "api_endpoint": self.api_input.text(),
         }
 
@@ -583,7 +594,10 @@ class ERBAConnector(QWidget):
             )
 
     def normalize_source_device(self, value):
-        return str(value or "").strip().upper()
+        val = str(value or "").strip()
+        if not val or val.lower() == "default":
+            return "default"
+        return val
 
     def configuration_changed(self):
         # Kept for backward compatibility with older signal connections.
@@ -712,7 +726,9 @@ class ERBAConnector(QWidget):
     def validate_configuration(self):
         ip = self.ip_input.text().strip()
         port = self.port_input.text().strip()
-        source = self.source_device_input.currentText().strip()
+        source = self.normalize_source_device(
+            self.source_device_input.currentText()
+        )
         api = self.api_input.text().strip()
 
         if not ip:
@@ -720,7 +736,7 @@ class ERBAConnector(QWidget):
         if not port:
             raise ValueError("TCP port is required.")
         if not source:
-            raise ValueError("Source device is required.")
+            source = "default"
         if not api:
             raise ValueError("API endpoint is required.")
         if not api.startswith(("http://", "https://")):

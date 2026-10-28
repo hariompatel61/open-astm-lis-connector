@@ -1,6 +1,6 @@
 {
   "analyzer_ip": "10.10.14.249",
   "tcp_port": "5002",
-  "source_device": "ERRBA7689",
+  "source_device": "default",
   "api_endpoint": "https://rims.admin.cocohospitals.com/api/v1/hospital/rims/analyzer-webhook"
 }
