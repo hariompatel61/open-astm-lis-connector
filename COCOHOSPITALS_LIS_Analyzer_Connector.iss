@@ -1,10 +1,10 @@
 ; ============================================================
 ; COCOHOSPITALS LIS Analyzer Connector
-; Production Installer v1.0.1
+; Production Installer v1.0.2
 ; ============================================================
 
 #define MyAppName "COCOHOSPITALS LIS"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "COCOHOSPITALS"
 #define MyAppExeName "COCOHOSPITALS-LIS-Analyzer-Connector.exe"
 #define MyAppTaskName "COCOHOSPITALS LIS Analyzer Connector"
@@ -28,7 +28,7 @@ VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=COCOHOSPITALS LIS
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
-VersionInfoVersion=1.0.1.0
+VersionInfoVersion=1.0.2.0
 ChangesAssociations=no
 
 SetupIconFile=logo.ico

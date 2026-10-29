@@ -29,6 +29,8 @@ except ImportError:
 # ERBA / MultiXL Connector - Desktop UI
 # ============================================================
 
+__version__ = "1.0.2"
+
 # Resolve files relative to the folder containing the EXE when frozen.
 # In development, use the desktop-app source directory.
 import shutil
@@ -104,7 +106,7 @@ class ERBAConnector(QWidget):
             self.resize(940, 500)
             self.setMinimumSize(820, 440)
             self.create_ui()
-            self.log_message("Application started successfully.")
+            self.log_message(f"Application started successfully (v{__version__}).")
             self.log_message(f"Listener: {LISTENER_FILE}")
 
             if not LISTENER_FILE.exists():
