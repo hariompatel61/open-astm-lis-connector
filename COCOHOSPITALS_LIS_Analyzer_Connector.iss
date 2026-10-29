@@ -58,19 +58,15 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
 
 [Run]
-; Create an elevated scheduled task configured with WorkingDir, RestartOnFailure, and continuous execution
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -Command ""$action = New-ScheduledTaskAction -Execute '""{app}\{#MyAppExeName}""' -WorkingDirectory '""{app}""'; $trigger = New-ScheduledTaskTrigger -AtLogOn; $principal = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\Administrators' -RunLevel Highest; $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); Register-ScheduledTask -TaskName '{#MyAppTaskName}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force"""; Flags: runhidden waituntilterminated
-
-; Fallback registration using schtasks
-Filename: "schtasks.exe"; Parameters: "/Create /TN ""{#MyAppTaskName}"" /TR """"{app}\{#MyAppExeName}"""" /SC ONLOGON /RL HIGHEST /F"; Flags: runhidden waituntilterminated
+; Proactively remove any legacy scheduled task to prevent duplicate launches on boot
+Filename: "schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppTaskName}"" /F"; Flags: runhidden waituntilterminated
 
 ; Launch the connector immediately after installation.
 Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Remove automatic startup task during uninstall.
+; Remove any legacy scheduled task during uninstall
 Filename: "schtasks.exe"; Parameters: "/Delete /TN ""{#MyAppTaskName}"" /F"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveScheduledTask"
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -NoProfile -Command ""Unregister-ScheduledTask -TaskName '{#MyAppTaskName}' -Confirm:$false -ErrorAction SilentlyContinue"""; Flags: runhidden waituntilterminated; RunOnceId: "RemovePsTask"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\logs"

@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+import subprocess
 import json
 import logging
 import site
@@ -872,6 +874,32 @@ class ERBAConnector(QWidget):
         self.log_message(f"Attempting automatic reconnection (attempt {self.reconnect_attempts})...")
         self.connect()
 
+    def kill_orphaned_listeners(self):
+        """Clean up any detached or orphaned erba_listener processes."""
+        try:
+            try:
+                LISTENER_STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
+                LISTENER_STOP_FILE.touch()
+                time.sleep(0.3)
+            except Exception:
+                pass
+
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "erba_listener.exe"],
+                    capture_output=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    timeout=3,
+                )
+        except Exception:
+            pass
+        finally:
+            try:
+                if LISTENER_STOP_FILE.exists():
+                    LISTENER_STOP_FILE.unlink()
+            except Exception:
+                pass
+
     def connect(self):
         self.auto_reconnect_enabled = True
         try:
@@ -885,6 +913,9 @@ class ERBAConnector(QWidget):
                     )
                     return
                 self.listener_process = None
+
+            # Clean up any lingering listener process from a prior crash or reboot
+            self.kill_orphaned_listeners()
 
             if not LISTENER_FILE.exists():
                 raise FileNotFoundError(
@@ -1085,12 +1116,12 @@ class ERBAConnector(QWidget):
         intentional = (
             getattr(self, "stopping_listener", False) or
             self.edit_mode or
-            not self.auto_reconnect_enabled
+            not getattr(self, "auto_reconnect_enabled", True)
         )
 
         if intentional:
             self.log_message(
-                f"Listener stopped cleanly for restart. Exit code: {exit_code}."
+                f"Listener stopped cleanly. Exit code: {exit_code}."
             )
         elif exit_code == 0:
             self.log_message(
@@ -1153,7 +1184,8 @@ class ERBAConnector(QWidget):
             logger.exception("Listener stop failed")
             return False
         finally:
-            self.stopping_listener = False
+            if getattr(self, "auto_reconnect_enabled", True):
+                self.stopping_listener = False
 
     def disconnect(self):
         try:
@@ -1228,16 +1260,22 @@ class ERBAConnector(QWidget):
     def closeEvent(self, event):
         try:
             self.log_message("Application closing...")
+            self.auto_reconnect_enabled = False
+            self.stopping_listener = True
             self.save_config()
 
             if self.listener_process is not None:
-                self.stop_listener(wait_ms=5000)
+                try:
+                    self.listener_process.finished.disconnect()
+                except Exception:
+                    pass
+                try:
+                    self.listener_process.errorOccurred.disconnect()
+                except Exception:
+                    pass
+                self.stop_listener(wait_ms=3000)
 
-            try:
-                if LISTENER_STOP_FILE.exists():
-                    LISTENER_STOP_FILE.unlink()
-            except Exception:
-                pass
+            self.kill_orphaned_listeners()
 
             logger.info("Application closed.")
         except Exception:
@@ -1247,10 +1285,11 @@ class ERBAConnector(QWidget):
 
 
 _single_instance_mutex = None
+_single_instance_lock_file = None
 
 
 def acquire_single_instance_lock():
-    global _single_instance_mutex
+    global _single_instance_mutex, _single_instance_lock_file
     if os.name != "nt":
         return True
 
@@ -1259,19 +1298,40 @@ def acquire_single_instance_lock():
     ERROR_ACCESS_DENIED = 5
 
     kernel32 = ctypes.windll.kernel32
+
+    # 1. Primary lock: Named Mutex across Global and Local namespaces
     for prefix in ("Global\\", "Local\\"):
         mutex_name = f"{prefix}COCOHOSPITALS_LIS_Connector_SingleInstance"
         mutex = kernel32.CreateMutexW(None, False, mutex_name)
         err = kernel32.GetLastError()
-        if err == ERROR_ALREADY_EXISTS:
+
+        # If it already exists or access is denied (owned by another session/elevated process),
+        # another instance is 100% running
+        if err in (ERROR_ALREADY_EXISTS, ERROR_ACCESS_DENIED):
             if mutex:
                 kernel32.CloseHandle(mutex)
             return False
+
         if mutex:
             _single_instance_mutex = mutex
-            return True
-        if err != ERROR_ACCESS_DENIED:
             break
+
+    if not _single_instance_mutex:
+        return False
+
+    # 2. Secondary lock: Cross-session file lock in DATA_DIR
+    try:
+        lock_file_path = DATA_DIR / ".instance.lock"
+        import msvcrt
+        fd = os.open(str(lock_file_path), os.O_CREAT | os.O_RDWR)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        _single_instance_lock_file = fd
+    except Exception:
+        if _single_instance_mutex:
+            kernel32.CloseHandle(_single_instance_mutex)
+            _single_instance_mutex = None
+        return False
+
     return True
 
 

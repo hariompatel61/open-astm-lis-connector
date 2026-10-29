@@ -21,6 +21,8 @@ ENV/
 # Logs & Runtime files
 logs/
 *.log
+*.lock
+.instance.lock
 _listener_temp/
 _local_app_data/
 *.flag
