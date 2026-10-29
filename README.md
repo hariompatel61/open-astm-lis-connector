@@ -1,5 +1,6 @@
 # COCOHOSPITALS LIS — Analyzer Connector
 
+[![Release Version](https://img.shields.io/badge/version-v1.0.2-blue.svg)](#)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%2832--bit%20%2F%2064--bit%29-brightgreen.svg)](https://microsoft.com/windows)

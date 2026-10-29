@@ -179,7 +179,7 @@ class ERBAConnector(QWidget):
         subtitle.setStyleSheet(
             "color: #64748b; font-size: 11px; font-weight: 600;"
         )
-        brand_badge = QLabel("COCOHOSPITALS LIS")
+        brand_badge = QLabel(f"COCOHOSPITALS LIS v{__version__}")
         brand_badge.setObjectName("BrandBadge")
         brand_badge.setAlignment(Qt.AlignCenter)
 

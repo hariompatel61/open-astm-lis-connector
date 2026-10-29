@@ -22,6 +22,8 @@ The API endpoint/configuration comes from .env.
 
 from __future__ import annotations
 
+__version__ = "1.0.2"
+
 import json
 import logging
 import os
@@ -651,7 +653,7 @@ def main():
     clear_stop_request()
 
     logger.info("=" * 80)
-    logger.info("ERBA / MultiXL ASTM TCP HOST LISTENER")
+    logger.info("ERBA / MultiXL ASTM TCP HOST LISTENER v%s", __version__)
     logger.info("=" * 80)
     logger.info(
         "Listening on %s:%s",
